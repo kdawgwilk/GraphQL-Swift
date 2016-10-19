@@ -1,0 +1,257 @@
+protocol Node {
+    var type: NodeType { get }
+    var location: Location? { get }
+}
+
+protocol HasSubtree: Node {
+    var children: [Node] { get }
+
+    // Possibly remove this if we don't allow editing the AST through a visitor
+    mutating func removeChildAtIndex(index: Int)
+    mutating func replaceChildAtIndex(index: Int, newValue: Node)
+}
+
+struct Document: HasSubtree {
+    var definitions: [Definition]
+    let location: Location?
+
+    var type: NodeType { return .document }
+
+    var children: [Node] { return definitions.map { $0 as Node } }
+
+    mutating func removeChildAtIndex(index: Int) {
+        definitions.remove(at: index)
+    }
+    mutating func replaceChildAtIndex(index: Int, newValue: Node) {
+        definitions[index] = newValue as! Definition
+    }
+}
+
+protocol Definition: Node {}
+
+struct OperationDefinition: Definition, HasSubtree {
+    let operationType: OperationType
+    let name: ValidName?
+    let variableDefinitions: [VariableDefinition]
+    let directives: [Directive]
+    let selectionSet: SelectionSet
+    let location: Location?
+
+    var type: NodeType { return .operationDefinition }
+
+    var children: [Node] {
+        return variableDefinitions.map { $0 as Node } + directives.map { $0 as Node }// + [selectionSet]
+    }
+}
+
+enum OperationType {
+    case query
+    case mutation
+}
+
+protocol Selection: Node {}
+
+struct SelectionSet: HasSubtree, Hashable {
+    let selections: [Selection]
+    let location: Location?
+
+    var type: NodeType { return .selectionSet }
+
+    var children: [Node] { return selections.map { $0 as Node } }
+
+    public static func ==(lhs: SelectionSet, rhs: SelectionSet) -> Bool {
+        return lhs.location == rhs.location
+    }
+    // TODO: how to hash this?
+    public var hashValue: Int { return 0 }
+}
+
+struct Field: Selection, HasSubtree, Named {
+    let alias: ValidName?
+    let name: ValidName
+    // Arguments are unordered, so this could be IdentitySet<Argument> if we enforce the language rule during parsing.
+    let arguments: [Argument]
+    let directives: [Directive]
+    let selectionSet: SelectionSet?
+    let location: Location?
+
+    var children: [Node] {
+        var children = arguments.map { $0 as Node } + directives.map { $0 as Node }
+        if let selectionSet = selectionSet {
+            children.append(selectionSet)
+        }
+        return children
+    }
+
+    var type: NodeType { return .field }
+}
+
+struct Argument: Node, Named {
+    let name: ValidName
+    let value: Value
+    let location: Location?
+
+    var type: NodeType { return .argument }
+}
+
+struct FragmentDefinition: Definition, HasSubtree, Named {
+    let name: ValidName
+    let typeCondition: NamedType
+    let directives: [Directive]
+    let selectionSet: SelectionSet
+    let location: Location?
+
+    var type: NodeType { return .fragmentDefinition }
+
+    var children: [Node] { return directives.map { $0 as Node } + [selectionSet] }
+}
+
+protocol Fragment: Selection {}
+
+struct FragmentSpread: Fragment, HasSubtree, Named {
+    let name: ValidName
+    let directives: [Directive]
+    let location: Location?
+
+    var type: NodeType { return .fragmentSpread }
+
+    var children: [Node] { return directives.map { $0 as Node } }
+}
+
+struct InlineFragment: Fragment, HasSubtree {
+    let typeCondition: NamedType?
+    let directives: [Directive]
+    let selectionSet: SelectionSet
+    let location: Location?
+
+    var type: NodeType { return .inlineFragment }
+
+    var children: [Node] { return directives.map { $0 as Node } + [selectionSet] }
+}
+
+protocol Value: Node {
+}
+
+struct IntValue: Value {
+    let value: Int
+    let location: Location?
+
+    var type: NodeType { return .intValue }
+}
+
+struct FloatValue: Value {
+    let value: Float
+    let location: Location?
+
+    var type: NodeType { return .floatValue }
+}
+
+struct StringValue: Value {
+    let value: String
+    let location: Location?
+
+    var type: NodeType { return .stringValue }
+}
+
+struct BoolValue: Value {
+    let value: Bool
+    let location: Location?
+
+    var type: NodeType { return .boolValue }
+}
+
+struct EnumValue: Value {
+    let value: String
+    let location: Location?
+
+    var type: NodeType { return .enumValue }
+}
+
+struct ListValue: Value, HasSubtree {
+    let values: [Value]
+    let location: Location?
+
+    var type: NodeType { return .listValue }
+
+    var children: [Node] { return values.map { $0 as Node } }
+}
+
+struct InputObjectValue: Value {
+    // Arguments are unordered, so this could be IdentitySet<InputObjectField> if we enforce the language rule during parsing.
+    let fields: [InputObjectField]
+    let location: Location?
+
+    var type: NodeType { return .inputObjectValue }
+
+    var children: [Node] { return fields.map { $0 as Node } }
+}
+
+struct InputObjectField: Value, Named {
+    let name: ValidName
+    let value: Value
+    let location: Location?
+
+    var type: NodeType { return .inputObjectField }
+}
+
+struct VariableDefinition: Definition {
+    let variable: Variable
+    let inputType: InputType
+    let defaultValue: Value?
+    let location: Location?
+
+    var type: NodeType { return .variableDefinition }
+}
+
+struct Variable: Value, Named {
+    let name: ValidName
+    let location: Location?
+
+    var type: NodeType { return .variable }
+}
+
+protocol InputType: Node {}
+
+struct NamedType: InputType {
+    let value: String
+    let location: Location?
+
+    var type: NodeType { return .namedType }
+}
+
+struct NonNullType: InputType {
+    let inputType: InputType
+    let location: Location?
+
+    var type: NodeType { return .nonNullType }
+}
+
+struct ListType: InputType {
+    let inputType: InputType
+    let location: Location?
+
+    var type: NodeType { return .listType }
+}
+
+struct Directive: Node, Named {
+    let name: ValidName
+    let arguments: [Argument]
+    let location: Location?
+
+    var type: NodeType { return .directive }
+}
+
+extension HasSubtree {
+    mutating func removeChildAtIndex(index: Int) {}
+    mutating func replaceChildAtIndex(index: Int, newValue: Node) {}
+}
+
+public struct Location: Equatable {
+    let start: String.Index
+    let end: String.Index
+    let source: Source?
+
+    public static func ==(lhs: Location, rhs: Location) -> Bool {
+        return lhs.start == rhs.start && lhs.end == rhs.end && lhs.source == rhs.source
+    }
+}
